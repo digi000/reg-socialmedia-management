@@ -7,5 +7,23 @@ export interface Employee {
   managerId: string;     // References Manager
   isActive: boolean;
   createdAt: Date;
-  // One Employee has many SocialAccounts
+  status: 'pending' | 'approved' | 'rejected' | 'suspended';
+  approvedAt?: Date;
+  approvedBy?: string; // Manager ID who approved
+}
+
+export interface CreateEmployeeInput {
+  name: string;
+  email: string;
+  password: string;
+  department: string;
+  position: string;
+  managerId: string;
+  socialUsername?: string;
+}
+
+export interface UpdateEmployeeStatusInput {
+  employeeId: string;
+  status: 'approved' | 'rejected' | 'suspended';
+  managerId: string;
 }
