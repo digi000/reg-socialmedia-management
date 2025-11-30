@@ -1,14 +1,15 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import db from '../config/database';
 import { Manager, CreateManagerInput } from '../models/Manager';
-import { Employee, CreateEmployeeInput } from '../models/Employee';
+import { Employee, CreateEmployeeInput, UpdateEmployeeStatusInput } from '../models/Employee';
 
 export class AuthService {
   private readonly SALT_ROUNDS = 12;
   private readonly JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
   // Manager Registration
-  async registerManager(input: CreateManagerInput): Promise<Manager> {
+  async registerManager(input: CreateManagerInput): Promise<Manager & { password: string }> {
     // Check if manager already exists
     const existingManager = await this.findManagerByEmail(input.email);
     if (existingManager) {
@@ -18,23 +19,19 @@ export class AuthService {
     // Hash password
     const hashedPassword = await bcrypt.hash(input.password, this.SALT_ROUNDS);
 
-    // Create manager (in real app, this would be DB insert)
-    const manager: Manager = {
-      id: this.generateId(),
-      ...input,
-      password: hashedPassword,
-      isActive: true,
-      createdAt: new Date()
-    };
+    // Create manager in database
+    const result = await db.query(
+      `INSERT INTO managers (name, email, password, company_name, is_active, created_at)
+       VALUES ($1, $2, $3, $4, true, CURRENT_TIMESTAMP)
+       RETURNING id, name, email, password, company_name as "companyName", is_active as "isActive", created_at as "createdAt"`,
+      [input.name, input.email, hashedPassword, input.companyName]
+    );
 
-    // Save to database would go here
-    // await db.managers.insert(manager);
-    
-    return manager;
+    return result.rows[0];
   }
 
   // Employee Registration (requires manager approval)
-  async registerEmployee(input: CreateEmployeeInput): Promise<Employee> {
+  async registerEmployee(input: CreateEmployeeInput): Promise<Employee & { password: string }> {
     // Check if employee already exists
     const existingEmployee = await this.findEmployeeByEmail(input.email);
     if (existingEmployee) {
@@ -51,23 +48,19 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(input.password, this.SALT_ROUNDS);
 
     // Create employee with pending status
-    const employee: Employee = {
-      id: this.generateId(),
-      ...input,
-      password: hashedPassword,
-      status: 'pending',
-      isActive: true,
-      createdAt: new Date()
-    };
+    const result = await db.query(
+      `INSERT INTO employees (name, email, password, department, position, manager_id, social_username, status, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', true, CURRENT_TIMESTAMP)
+       RETURNING id, name, email, password, department, position, manager_id as "managerId", 
+                 social_username as "socialUsername", status, is_active as "isActive", created_at as "createdAt"`,
+      [input.name, input.email, hashedPassword, input.department, input.position, input.managerId, input.socialUsername || null]
+    );
 
-    // Save to database would go here
-    // await db.employees.insert(employee);
-    
-    return employee;
+    return result.rows[0];
   }
 
   // Manager Login
-  async loginManager(email: string, password: string): Promise<{ manager: Manager; token: string }> {
+  async loginManager(email: string, password: string): Promise<{ manager: Manager & { password: string }; token: string }> {
     const manager = await this.findManagerByEmail(email);
     if (!manager || !manager.isActive) {
       throw new Error('Invalid credentials or account inactive');
@@ -83,7 +76,7 @@ export class AuthService {
   }
 
   // Employee Login (only if approved)
-  async loginEmployee(email: string, password: string): Promise<{ employee: Employee; token: string }> {
+  async loginEmployee(email: string, password: string): Promise<{ employee: Employee & { password: string }; token: string }> {
     const employee = await this.findEmployeeByEmail(email);
     if (!employee || !employee.isActive) {
       throw new Error('Invalid credentials or account inactive');
@@ -103,7 +96,7 @@ export class AuthService {
   }
 
   // Manager approves/rejects employee
-  async updateEmployeeStatus(input: UpdateEmployeeStatusInput): Promise<Employee> {
+  async updateEmployeeStatus(input: UpdateEmployeeStatusInput): Promise<Employee & { password: string }> {
     const employee = await this.findEmployeeById(input.employeeId);
     if (!employee) {
       throw new Error('Employee not found');
@@ -114,23 +107,43 @@ export class AuthService {
       throw new Error('Unauthorized to update this employee');
     }
 
-    employee.status = input.status;
+    let result;
     if (input.status === 'approved') {
-      employee.approvedAt = new Date();
-      employee.approvedBy = input.managerId;
+      result = await db.query(
+        `UPDATE employees 
+         SET status = $1, approved_at = CURRENT_TIMESTAMP, approved_by = $2
+         WHERE id = $3
+         RETURNING id, name, email, password, department, position, manager_id as "managerId",
+                   social_username as "socialUsername", status, is_active as "isActive", 
+                   approved_at as "approvedAt", approved_by as "approvedBy", created_at as "createdAt"`,
+        [input.status, input.managerId, input.employeeId]
+      );
+    } else {
+      result = await db.query(
+        `UPDATE employees 
+         SET status = $1
+         WHERE id = $2
+         RETURNING id, name, email, password, department, position, manager_id as "managerId",
+                   social_username as "socialUsername", status, is_active as "isActive", 
+                   approved_at as "approvedAt", approved_by as "approvedBy", created_at as "createdAt"`,
+        [input.status, input.employeeId]
+      );
     }
 
-    // Update in database would go here
-    // await db.employees.update(employee.id, employee);
-    
-    return employee;
+    return result.rows[0];
   }
 
   // Get pending employees for manager
-  async getPendingEmployees(managerId: string): Promise<Employee[]> {
-    // This would query the database
-    // return await db.employees.find({ managerId, status: 'pending' });
-    return []; // Placeholder
+  async getPendingEmployees(managerId: string): Promise<(Employee & { password: string })[]> {
+    const result = await db.query(
+      `SELECT id, name, email, password, department, position, manager_id as "managerId",
+              social_username as "socialUsername", status, is_active as "isActive", created_at as "createdAt"
+       FROM employees
+       WHERE manager_id = $1 AND status = 'pending'
+       ORDER BY created_at DESC`,
+      [managerId]
+    );
+    return result.rows;
   }
 
   private generateToken(userId: string, role: 'manager' | 'employee'): string {
@@ -141,28 +154,44 @@ export class AuthService {
     );
   }
 
-  private generateId(): string {
-    return Math.random().toString(36).substr(2, 9);
+  // Database query methods
+  private async findManagerByEmail(email: string): Promise<(Manager & { password: string }) | null> {
+    const result = await db.query(
+      `SELECT id, name, email, password, company_name as "companyName", is_active as "isActive", created_at as "createdAt"
+       FROM managers WHERE email = $1`,
+      [email]
+    );
+    return result.rows[0] || null;
   }
 
-  // These would be database calls in real implementation
-  private async findManagerByEmail(email: string): Promise<Manager | null> {
-    // return await db.managers.findByEmail(email);
-    return null;
+  private async findManagerById(id: string): Promise<(Manager & { password: string }) | null> {
+    const result = await db.query(
+      `SELECT id, name, email, password, company_name as "companyName", is_active as "isActive", created_at as "createdAt"
+       FROM managers WHERE id = $1`,
+      [id]
+    );
+    return result.rows[0] || null;
   }
 
-  private async findManagerById(id: string): Promise<Manager | null> {
-    // return await db.managers.findById(id);
-    return null;
+  private async findEmployeeByEmail(email: string): Promise<(Employee & { password: string }) | null> {
+    const result = await db.query(
+      `SELECT id, name, email, password, department, position, manager_id as "managerId",
+              social_username as "socialUsername", status, is_active as "isActive", 
+              approved_at as "approvedAt", approved_by as "approvedBy", created_at as "createdAt"
+       FROM employees WHERE email = $1`,
+      [email]
+    );
+    return result.rows[0] || null;
   }
 
-  private async findEmployeeByEmail(email: string): Promise<Employee | null> {
-    // return await db.employees.findByEmail(email);
-    return null;
-  }
-
-  private async findEmployeeById(id: string): Promise<Employee | null> {
-    // return await db.employees.findById(id);
-    return null;
+  private async findEmployeeById(id: string): Promise<(Employee & { password: string }) | null> {
+    const result = await db.query(
+      `SELECT id, name, email, password, department, position, manager_id as "managerId",
+              social_username as "socialUsername", status, is_active as "isActive", 
+              approved_at as "approvedAt", approved_by as "approvedBy", created_at as "createdAt"
+       FROM employees WHERE id = $1`,
+      [id]
+    );
+    return result.rows[0] || null;
   }
 }
