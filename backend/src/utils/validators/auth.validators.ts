@@ -14,8 +14,7 @@ export const authValidators = {
     password: z.string().min(6, 'Password must be at least 6 characters'),
     department: z.string().min(1, 'Department is required'),
     position: z.string().min(1, 'Position is required'),
-    managerId: z.string().uuid('Valid manager ID is required'),
-    socialUsername: z.string().optional()
+    managerId: z.string().uuid('Valid manager ID is required')
   }),
 
   login: z.object({
