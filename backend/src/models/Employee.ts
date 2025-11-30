@@ -5,7 +5,6 @@ export interface Employee {
   department: string;
   position: string;
   managerId: string;     // References Manager
-  socialUsername?: string;
   isActive: boolean;
   createdAt: Date;
   status: 'pending' | 'approved' | 'rejected' | 'suspended';
@@ -20,7 +19,6 @@ export interface CreateEmployeeInput {
   department: string;
   position: string;
   managerId: string;
-  socialUsername?: string;
 }
 
 export interface UpdateEmployeeStatusInput {
