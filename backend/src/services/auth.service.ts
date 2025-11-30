@@ -49,11 +49,11 @@ export class AuthService {
 
     // Create employee with pending status
     const result = await db.query(
-      `INSERT INTO employees (name, email, password, department, position, manager_id, social_username, status, is_active, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', true, CURRENT_TIMESTAMP)
+      `INSERT INTO employees (name, email, password, department, position, manager_id, status, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', true, CURRENT_TIMESTAMP)
        RETURNING id, name, email, password, department, position, manager_id as "managerId", 
-                 social_username as "socialUsername", status, is_active as "isActive", created_at as "createdAt"`,
-      [input.name, input.email, hashedPassword, input.department, input.position, input.managerId, input.socialUsername || null]
+                 status, is_active as "isActive", created_at as "createdAt"`,
+      [input.name, input.email, hashedPassword, input.department, input.position, input.managerId]
     );
 
     return result.rows[0];
@@ -114,7 +114,7 @@ export class AuthService {
          SET status = $1, approved_at = CURRENT_TIMESTAMP, approved_by = $2
          WHERE id = $3
          RETURNING id, name, email, password, department, position, manager_id as "managerId",
-                   social_username as "socialUsername", status, is_active as "isActive", 
+                   status, is_active as "isActive", 
                    approved_at as "approvedAt", approved_by as "approvedBy", created_at as "createdAt"`,
         [input.status, input.managerId, input.employeeId]
       );
@@ -124,7 +124,7 @@ export class AuthService {
          SET status = $1
          WHERE id = $2
          RETURNING id, name, email, password, department, position, manager_id as "managerId",
-                   social_username as "socialUsername", status, is_active as "isActive", 
+                   status, is_active as "isActive", 
                    approved_at as "approvedAt", approved_by as "approvedBy", created_at as "createdAt"`,
         [input.status, input.employeeId]
       );
@@ -137,7 +137,7 @@ export class AuthService {
   async getPendingEmployees(managerId: string): Promise<(Employee & { password: string })[]> {
     const result = await db.query(
       `SELECT id, name, email, password, department, position, manager_id as "managerId",
-              social_username as "socialUsername", status, is_active as "isActive", created_at as "createdAt"
+              status, is_active as "isActive", created_at as "createdAt"
        FROM employees
        WHERE manager_id = $1 AND status = 'pending'
        ORDER BY created_at DESC`,
@@ -176,7 +176,7 @@ export class AuthService {
   private async findEmployeeByEmail(email: string): Promise<(Employee & { password: string }) | null> {
     const result = await db.query(
       `SELECT id, name, email, password, department, position, manager_id as "managerId",
-              social_username as "socialUsername", status, is_active as "isActive", 
+              status, is_active as "isActive", 
               approved_at as "approvedAt", approved_by as "approvedBy", created_at as "createdAt"
        FROM employees WHERE email = $1`,
       [email]
@@ -187,7 +187,7 @@ export class AuthService {
   private async findEmployeeById(id: string): Promise<(Employee & { password: string }) | null> {
     const result = await db.query(
       `SELECT id, name, email, password, department, position, manager_id as "managerId",
-              social_username as "socialUsername", status, is_active as "isActive", 
+              status, is_active as "isActive", 
               approved_at as "approvedAt", approved_by as "approvedBy", created_at as "createdAt"
        FROM employees WHERE id = $1`,
       [id]
